@@ -23,11 +23,20 @@ static FILE * fp_creater_ephemeris_gps = NULL;
 static FILE * fp_creater_almance_gps = NULL;
 static FILE * fp_creater_ephemeris_glonass = NULL;
 static FILE * fp_creater_almance_glonass = NULL;
+static FILE * fp_creater_event_txt = NULL;
 /*-------------------------------*/
 static FILE * fp_creater_imu = NULL;
 /*-------------------------------*/
 static FILE * fp_nmea_bin = NULL;
 static FILE * fp_nmea_txt = NULL;
+/*-------------------------------*/
+unsigned short 					EventNumber = 0;
+unsigned char 					EventSource = 0, EventPort=0;
+double 							EventTime = 0.0;
+unsigned short 					Week_number;
+
+static unsigned int GPS_TIME_LAST_PDE = 0;
+
 /*-------------------------------*/
 static unsigned long long last_times = 0;
 static unsigned int reduce = 0;
@@ -545,6 +554,18 @@ void Cgps_transferDlg::OnBnClickedButton2()
 			   MessageBox(_T("creater rt fp_creater_pde error"),_T("tips"),0);
 			   return;
 		   }
+		   memset(creater_buffer,0,sizeof(creater_buffer));
+
+		   sprintf(creater_buffer,"%s.txt",file_name); 
+
+		   fp_creater_event_txt = fopen(creater_buffer,"wb+");
+
+		   if(fp_creater_event_txt == NULL)
+		   {
+			   MessageBox(_T("creater rt fp_creater_pde error"),_T("tips"),0);
+			   return;
+		   }
+
 		   if(raw_test)
 		   {
 			   /* TEST */
@@ -740,7 +761,7 @@ void Cgps_transferDlg::OnBnClickedButton2()
 			{
 				MessageBox(_T("ok"),_T("tips"),0);
 				fclose(fp);
-				
+				fclose(fp_creater_event_txt);
 				if( switch_one == 1 )
 				{
 					fclose(fp_creater_nav);
@@ -950,7 +971,7 @@ void Cgps_transferDlg::raw_gps_decode(unsigned char d)
 			}
 			break;
 		case 1:
-			if( d == 0x28 || d == 0x68 || d == 0xE8)
+			if( d == 0x28 || d == 0x68 || d == 0xE8 || 0xA8 )
 			{
 				step = 2;
 				status = d;
@@ -1032,6 +1053,7 @@ void Cgps_transferDlg::gps_raw_detail( unsigned char type,unsigned char *data,un
 	unsigned int len_glonass_almance;
 	//static unsigned char page_buffer[1024 * 1024];
  //   static unsigned int page_buffer_cnt = 0;
+	char event_buffer[200];
 
   switch(type)
   {
@@ -1045,6 +1067,16 @@ void Cgps_transferDlg::gps_raw_detail( unsigned char type,unsigned char *data,un
 		  case 1: 
 			  break;
 		  case 2:
+				EventSource = data[4];
+				EventPort = data[5];
+				big2little(data + 6, (char *)&EventNumber, 2);
+				big2little(data + 8, (char *)&EventTime, 8);
+				/*------------------------------------*/
+				memset(event_buffer,0,sizeof(event_buffer));
+				sprintf(event_buffer,"%d %lldd\r\n",EventNumber,EventTime);
+				/*------------------------------------*/
+				fwrite(event_buffer,1,strlen(event_buffer),fp_creater_event_txt);
+				/*------------------------------------*/
 			  break;
 		  case 6:
 
@@ -1580,8 +1612,17 @@ void Cgps_transferDlg::real_time_gnss_survey_data(unsigned char * data/*beggin f
 			   }
 		   }
 		   /* printf and save data fp_creater_pde */
-		   gps_psdu_doppler.system_pps_num = pps_num;
 		   gps_psdu_doppler.system_timestamps = timestamps;
+
+		   gps_psdu_doppler.system_pps_num = gps_psdu_doppler.GPS_receive_ms - GPS_TIME_LAST_PDE;
+
+		   if( gps_psdu_doppler.system_pps_num > 300 )
+		   {
+			   gps_psdu_doppler.system_pps_num = 300;
+		   }
+
+		   GPS_TIME_LAST_PDE = gps_psdu_doppler.GPS_receive_ms;
+
            fwrite(&gps_psdu_doppler,1,sizeof(gps_psdu_doppler),fp_creater_pde);
 		   /* --sdf-s-dsf-s-dfs-df-sd-fs-fds-f-sdf*/
 		    if(raw_test)
